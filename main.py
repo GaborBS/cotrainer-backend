@@ -15,6 +15,9 @@ from auth import hash_password, verify_password, create_token, decode_token
 
 from auth import pwd_context
 
+from datetime import datetime, timedelta, date
+from typing import List
+from models import User, Event
 
 
 
@@ -157,9 +160,117 @@ def coach(req: CoachRequest):
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
 
+class CalendarAIRequest(BaseModel):
+    message: str
+
+class RecurrenceRule(BaseModel):
+    title: str = "Training"
+    start_date: str           # "YYYY-MM-DD"
+    end_date: str             # "YYYY-MM-DD"
+    weekdays: List[str]       # ["MO","TU","WE","TH","FR","SA","SU"]
+    time: str                 # "19:00"
+    duration_minutes: int = 90
+    type: str | None = "training"
+    notes: str | None = None
+    timezone: str | None = "Europe/Berlin"
+
+class RecurrenceResponse(BaseModel):
+    events: List[RecurrenceRule]
+
+WEEKDAY_MAP = {
+    "MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6
+}
+
+def expand_recurrence(rule: RecurrenceRule) -> List[tuple[datetime, datetime, str, str | None, str | None]]:
+    # returns list of (start_dt, end_dt, title, type, notes)
+    start_d = date.fromisoformat(rule.start_date)
+    end_d = date.fromisoformat(rule.end_date)
+    hh, mm = rule.time.split(":")
+    hour = int(hh); minute = int(mm)
+
+    wanted = set(WEEKDAY_MAP[d] for d in rule.weekdays if d in WEEKDAY_MAP)
+    if not wanted:
+        return []
+
+    out = []
+    cur = start_d
+    while cur <= end_d:
+        if cur.weekday() in wanted:
+            start_dt = datetime(cur.year, cur.month, cur.day, hour, minute)
+            end_dt = start_dt + timedelta(minutes=rule.duration_minutes)
+            out.append((start_dt, end_dt, rule.title, rule.type, rule.notes))
+        cur = cur + timedelta(days=1)
+    return out
+
+@app.post("/api/calendar/ai-plan")
+def calendar_ai_plan(req: CalendarAIRequest, user: User = Depends(get_current_user)):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY fehlt")
+
+    client = OpenAI(api_key=api_key)
+
+    system = (
+        "Du bist ein Assistent für Fußballtrainer und sollst aus dem Text Kalender-Regeln extrahieren.\n"
+        "Gib NUR gültiges JSON zurück, ohne Markdown.\n"
+        "Format:\n"
+        "{ \"events\": [ {"
+        "\"title\":\"Training\","
+        "\"start_date\":\"YYYY-MM-DD\","
+        "\"end_date\":\"YYYY-MM-DD\","
+        "\"weekdays\":[\"MO\",\"TU\"...],"
+        "\"time\":\"HH:MM\","
+        "\"duration_minutes\":90,"
+        "\"type\":\"training\","
+        "\"notes\":\"...\","
+        "\"timezone\":\"Europe/Berlin\""
+        "} ] }\n"
+        "Wenn ein Datum fehlt, nimm das heutige Jahr an und setze end_date = start_date + 90 Tage.\n"
+        "Wenn Uhrzeit fehlt, nimm 19:00.\n"
+        "Wenn Wochentage fehlen, nimm MO und DO.\n"
+    )
+
+    # responses API -> wir erwarten JSON im output_text
+    resp = client.responses.create(
+        model="gpt-4o-mini",
+        input=f"{system}\nTEXT:\n{req.message}"
+    )
+
+    raw = resp.output_text.strip()
+
+    try:
+        data = __import__("json").loads(raw)
+        parsed = RecurrenceResponse(**data)
+        return parsed.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI JSON parse failed: {e}; raw={raw[:500]}")
 
 
 
+class SaveRecurrenceRequest(BaseModel):
+    rule: RecurrenceRule
+
+@app.post("/api/calendar/save")
+def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    items = expand_recurrence(req.rule)
+    if not items:
+        raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
+
+    created = 0
+    for start_dt, end_dt, title, typ, notes in items:
+        ev = Event(
+            user_id=user.id,
+            title=title,
+            start_at=start_dt,
+            end_at=end_dt,
+            type=typ,
+            notes=notes
+        )
+        db.add(ev)
+        created += 1
+
+    db.commit()
+    return {"ok": True, "created": created}
 
 
 
