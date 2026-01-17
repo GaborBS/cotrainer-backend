@@ -1,8 +1,22 @@
 import os
 from typing import Optional
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from openai import OpenAI
+from fastapi import Depends, HTTPException, Header
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
 
+from db import Base, engine, get_db
+from models import User
+from auth import hash_password, verify_password, create_token, decode_token
+
+
+app = FastAPI()
+
+# 2) CORS EINMAL
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -15,20 +29,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from pydantic import BaseModel
-from openai import OpenAI
-
-from fastapi import Depends, HTTPException, Header
-from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
-
-from db import Base, engine, get_db
-from models import User
-from auth import hash_password, verify_password, create_token, decode_token
-
-
-app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
 
@@ -55,6 +55,15 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
     return user
+    
+@app.post("/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Login fehlgeschlagen")
+
+    token = create_token(user.id)
+    return {"token": token}
 
 @app.post("/auth/register")
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
@@ -79,18 +88,6 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 @app.get("/me")
 def me(user: User = Depends(get_current_user)):
     return {"email": user.email, "club_name": user.club_name}
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://app.negynegyketto.eu",
-        "http://app.negynegyketto.eu",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 class CoachRequest(BaseModel):
     message: str
@@ -130,6 +127,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
