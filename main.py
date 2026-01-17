@@ -271,6 +271,28 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     db.commit()
     return {"ok": True, "created": created}
 
+@app.get("/api/calendar/events")
+def list_events(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    events = db.query(Event)\
+        .filter(Event.user_id == user.id)\
+        .order_by(Event.start_at)\
+        .all()
+
+    return [
+        {
+            "id": e.id,
+            "title": e.title,
+            "start": e.start_at.isoformat(),
+            "end": e.end_at.isoformat(),
+            "type": e.type,
+            "notes": e.notes,
+        }
+        for e in events
+    ]
+
 
 
 
