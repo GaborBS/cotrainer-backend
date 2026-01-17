@@ -5,6 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 
+from fastapi import Depends, HTTPException, Header
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
+
+from db import Base, engine, get_db
+from models import User
+from auth import hash_password, verify_password, create_token, decode_token
+
+
 app = FastAPI()
 
 app.add_middleware(
@@ -56,3 +65,4 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
