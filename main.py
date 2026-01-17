@@ -84,10 +84,11 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
 
     # Mindestlänge
+    pw = req.password.strip()
+    
     if len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
 
-    # 🔴 HIER Punkt 1: bcrypt Limit (max 72 bytes)
     if len(req.password.encode("utf-8")) > 72:
         raise HTTPException(
             status_code=400,
@@ -155,6 +156,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
