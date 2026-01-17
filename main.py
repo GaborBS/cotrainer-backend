@@ -112,14 +112,6 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
     return {"ok": True}
 
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=details)
-
-
 @app.get("/me")
 def me(user: User = Depends(get_current_user)):
     return {"email": user.email, "club_name": user.club_name}
@@ -162,6 +154,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
