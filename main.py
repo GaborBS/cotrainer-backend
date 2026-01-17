@@ -13,6 +13,12 @@ from db import Base, engine, get_db
 from models import User
 from auth import hash_password, verify_password, create_token, decode_token
 
+from auth import pwd_context
+
+@app.get("/debug/auth")
+def debug_auth():
+    return {"schemes": list(pwd_context.schemes())}
+
 
 app = FastAPI()
 
@@ -156,6 +162,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
