@@ -5,7 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://app.negynegyketto.eu",
+        "http://app.negynegyketto.eu",
+        "https://negynegyketto.eu",
+        "http://negynegyketto.eu",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,6 +130,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
