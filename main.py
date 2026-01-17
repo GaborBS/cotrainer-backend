@@ -16,6 +16,57 @@ from auth import hash_password, verify_password, create_token, decode_token
 
 app = FastAPI()
 
+Base.metadata.create_all(bind=engine)
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    club_name: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+def get_current_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> User:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    token = authorization.split(" ", 1)[1]
+    user_id = decode_token(token)
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user
+
+@app.post("/auth/register")
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == req.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
+
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
+
+    user = User(
+        email=req.email.lower().strip(),
+        password_hash=hash_password(req.password),
+        club_name=req.club_name.strip(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True}
+
+
+@app.get("/me")
+def me(user: User = Depends(get_current_user)):
+    return {"email": user.email, "club_name": user.club_name}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -65,4 +116,5 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
