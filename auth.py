@@ -11,6 +11,8 @@ JWT_EXPIRES_DAYS = 30
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+    print("PW_LEN_BYTES:", len(req.password.encode("utf-8")))
+
 
 def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
