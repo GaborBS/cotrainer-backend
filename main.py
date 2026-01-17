@@ -16,7 +16,6 @@ from auth import hash_password, verify_password, create_token, decode_token
 
 app = FastAPI()
 
-# 2) CORS EINMAL
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -24,6 +23,9 @@ app.add_middleware(
         "http://app.negynegyketto.eu",
         "https://negynegyketto.eu",
         "http://negynegyketto.eu",
+        "https://negynegyketto.eu",
+        "http://negynegyketto.eu"
+
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -127,6 +129,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
