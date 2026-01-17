@@ -254,7 +254,6 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     items = expand_recurrence(req.rule)
     if not items:
         raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
-
     created = 0
     for start_dt, end_dt, title, typ, notes in items:
         ev = Event(
@@ -271,36 +270,31 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     db.commit()
     return {"ok": True, "created": created}
 
-@app.get("/api/calendar/events")
-def list_events(
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import datetime
+
+class EventOut(BaseModel):
+    id: int
+    title: str
+    start_at: datetime
+    end_at: datetime
+    type: Optional[str] = None
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True  # Pydantic v2
+
+@app.get("/api/calendar/events", response_model=List[EventOut])
+def calendar_events(
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    events = db.query(Event)\
-        .filter(Event.user_id == user.id)\
-        .order_by(Event.start_at)\
+    events = (
+        db.query(Event)
+        .filter(Event.user_id == user.id)
+        .order_by(Event.start_at.asc())
         .all()
-
-    return [
-        {
-            "id": e.id,
-            "title": e.title,
-            "start": e.start_at.isoformat(),
-            "end": e.end_at.isoformat(),
-            "type": e.type,
-            "notes": e.notes,
-        }
-        for e in events
-    ]
-
-
-
-
-
-
-
-
-
-
-
+    )
+    return events
 
