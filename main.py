@@ -1,4 +1,4 @@
-import os
+tewimport os
 from typing import Optional
 
 from fastapi import FastAPI
@@ -292,6 +292,7 @@ def list_events(
         }
         for e in events
     ]
+
 
 
 
