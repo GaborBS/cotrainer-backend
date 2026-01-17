@@ -4,6 +4,7 @@ from jose import jwt
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+print("AUTH_SCHEME:", pwd_context.schemes())
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME")
 JWT_ALG = "HS256"
@@ -11,8 +12,6 @@ JWT_EXPIRES_DAYS = 30
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
-    print("PW_LEN_BYTES:", len(req.password.encode("utf-8")))
-
 
 def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
