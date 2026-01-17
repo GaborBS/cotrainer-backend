@@ -67,24 +67,34 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     token = create_token(user.id)
     return {"token": token}
 
+import traceback
+from fastapi import HTTPException
+
 @app.post("/auth/register")
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
+    try:
+        existing = db.query(User).filter(User.email == req.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
 
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
+        if len(req.password) < 6:
+            raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
 
-    user = User(
-        email=req.email.lower().strip(),
-        password_hash=hash_password(req.password),
-        club_name=req.club_name.strip(),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {"ok": True}
+        user = User(
+            email=req.email.lower().strip(),
+            password_hash=hash_password(req.password),
+            club_name=req.club_name.strip(),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {"ok": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=details)
 
 
 @app.get("/me")
@@ -129,6 +139,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
