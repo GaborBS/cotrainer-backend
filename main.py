@@ -270,11 +270,12 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     db.commit()
     return {"ok": True, "created": created}
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 
 class EventOut(BaseModel):
+     model_config = ConfigDict(from_attributes=True)
     id: int
     title: str
     start_at: datetime
@@ -297,4 +298,5 @@ def calendar_events(
         .all()
     )
     return events
+
 
