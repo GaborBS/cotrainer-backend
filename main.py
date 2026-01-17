@@ -32,7 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
+@app.on_event("startup")
+def on_startup():
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("DB ready")
+    except Exception as e:
+        print("DB init failed:", repr(e))
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -139,6 +146,7 @@ def coach(req: CoachRequest):
         # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
+
 
 
 
