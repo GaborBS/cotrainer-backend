@@ -10,7 +10,6 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from db import Base, engine, get_db
-from models import User
 from auth import hash_password, verify_password, create_token, decode_token
 
 from auth import pwd_context
@@ -271,6 +270,7 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
 
     db.commit()
     return {"ok": True, "created": created}
+
 
 
 
