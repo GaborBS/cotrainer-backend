@@ -1,4 +1,5 @@
-tewimport os
+from fastapi import Query
+from datetime import time
 from typing import Optional
 
 from fastapi import FastAPI
@@ -275,16 +276,14 @@ from typing import List, Optional
 from datetime import datetime
 
 class EventOut(BaseModel):
-     model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     start_at: datetime
     end_at: datetime
     type: Optional[str] = None
     notes: Optional[str] = None
-
-    class Config:
-        from_attributes = True  # Pydantic v2
 
 
 @app.get("/api/calendar/events", response_model=list[EventOut])
