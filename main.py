@@ -1,3 +1,4 @@
+import os
 from fastapi import Query
 from datetime import time
 from typing import Optional
@@ -301,6 +302,7 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
 
 
 
