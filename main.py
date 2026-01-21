@@ -286,17 +286,22 @@ class EventOut(BaseModel):
     class Config:
         from_attributes = True  # Pydantic v2
 
-@app.get("/api/calendar/events", response_model=List[EventOut])
+
+@app.get("/api/calendar/events", response_model=list[EventOut])
 def calendar_events(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
 ):
-    events = (
-        db.query(Event)
-        .filter(Event.user_id == user.id)
-        .order_by(Event.start_at.asc())
-        .all()
-    )
-    return events
+    q = db.query(Event).filter(Event.user_id == user.id)
+
+    if from_date:
+        q = q.filter(Event.start_at >= datetime.combine(from_date, time.min))
+    if to_date:
+        q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
+
+    return q.order_by(Event.start_at.asc()).all()
+
 
 
