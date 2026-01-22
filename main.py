@@ -10,6 +10,7 @@ from openai import OpenAI
 from fastapi import Depends, HTTPException, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from sqlalchemy import Column, Integer, String
 
 from db import Base, engine, get_db
 from auth import hash_password, verify_password, create_token, decode_token
@@ -119,13 +120,38 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     return {"ok": True}
 
 @app.get("/me")
+@app.get("/me")
 def me(user: User = Depends(get_current_user)):
-    return {"email": user.email, "club_name": user.club_name}
+    return {
+        "email": user.email,
+        "club_name": user.club_name,
+        "first_name": getattr(user, "first_name", None),
+        "last_name": getattr(user, "last_name", None),
+        "language": getattr(user, "language", "de"),
+        "timezone": getattr(user, "timezone", "Europe/Berlin"),
+        "date_format": getattr(user, "date_format", "dd.MM.yyyy"),
+    }
+
 
 class CoachRequest(BaseModel):
     message: str
     team: Optional[str] = None
     age_group: Optional[str] = None
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    club_name = Column(String, nullable=False)
+
+    # NEU:
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    language = Column(String(10), nullable=True, default="de")
+    timezone = Column(String(50), nullable=True, default="Europe/Berlin")
+    date_format = Column(String(20), nullable=True, default="dd.MM.yyyy")
 
 @app.get("/health")
 def health():
@@ -133,6 +159,8 @@ def health():
 
 from fastapi import HTTPException
 import traceback
+
+
 
 @app.post("/api/coach")
 def coach(req: CoachRequest):
@@ -302,6 +330,7 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
 
 
 
