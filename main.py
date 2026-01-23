@@ -1,30 +1,25 @@
 import os
-from fastapi import Query
-from datetime import time
-from typing import Optional
+import json
+import traceback
+from typing import Optional, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from openai import OpenAI
-from fastapi import Depends, HTTPException, Header
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, Integer, String
+from openai import OpenAI
+
+from datetime import datetime, timedelta, date, time
 
 from db import Base, engine, get_db
-from auth import hash_password, verify_password, create_token, decode_token
-
-from auth import pwd_context
-
-from datetime import datetime, timedelta, date
-from typing import List
 from models import User, Event
-
+from auth import hash_password, verify_password, create_token, decode_token
+from auth import pwd_context
 
 
 app = FastAPI()
 
+# ---------- CORS ----------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -32,28 +27,30 @@ app.add_middleware(
         "http://app.negynegyketto.eu",
         "https://negynegyketto.eu",
         "http://negynegyketto.eu",
-        "https://negynegyketto.eu",
-        "http://negynegyketto.eu"
-
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/debug/auth")
-def debug_auth():
-    return {"schemes": list(pwd_context.schemes())}
 
+# ---------- Startup ----------
 @app.on_event("startup")
 def on_startup():
     try:
         Base.metadata.create_all(bind=engine)
         print("DB ready")
+        print("AUTH_SCHEME:", pwd_context.schemes())
     except Exception as e:
         print("DB init failed:", repr(e))
 
 
+@app.get("/debug/auth")
+def debug_auth():
+    return {"schemes": list(pwd_context.schemes())}
+
+
+# ---------- Auth Models ----------
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
@@ -63,6 +60,8 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+
+# ---------- Token Helper ----------
 def get_current_user(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
@@ -77,7 +76,40 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
     return user
-    
+
+
+# ---------- Register/Login ----------
+@app.post("/auth/register")
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == req.email.lower().strip()).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
+
+    pw = req.password.strip()
+
+    if len(pw) < 6:
+        raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
+
+    if len(pw.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Passwort zu lang (max. 72 Zeichen)")
+
+    user = User(
+        email=req.email.lower().strip(),
+        password_hash=hash_password(pw),
+        club_name=req.club_name.strip(),
+        # optional fields (wenn in models.py vorhanden)
+        first_name=None,
+        last_name=None,
+        language="de",
+        timezone="Europe/Berlin",
+        date_format="dd.MM.yyyy",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True}
+
+
 @app.post("/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email.lower().strip()).first()
@@ -87,109 +119,23 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     token = create_token(user.id)
     return {"token": token}
 
-import traceback
-from fastapi import HTTPException
 
-@app.post("/auth/register")
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == req.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="E-Mail existiert bereits")
-
-    # Mindestlänge
-    pw = req.password.strip()
-    
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
-
-    if len(req.password.encode("utf-8")) > 72:
-        raise HTTPException(
-            status_code=400,
-            detail="Passwort zu lang (max. 72 Zeichen)"
-        )
-
-    user = User(
-        email=req.email.lower().strip(),
-        password_hash=hash_password(req.password),
-        club_name=req.club_name.strip(),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return {"ok": True}
-
-
-class UpdateMeRequest(BaseModel):
-    first_name: str | None = None
-    last_name: str | None = None
-    language: str | None = None
-    timezone: str | None = None
-    date_format: str | None = None
-    password: str | None = None
-
-@app.put("/me")
-def update_me(
-    req: UpdateMeRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-
-    def me(user: User = Depends(get_current_user)):
+# ---------- ME (GET + PUT) ----------
+@app.get("/me")
+def me(user: User = Depends(get_current_user)):
     return {
         "email": user.email,
         "club_name": user.club_name,
         "first_name": getattr(user, "first_name", None),
         "last_name": getattr(user, "last_name", None),
-        "language": getattr(user, "language", "de"),
-        "timezone": getattr(user, "timezone", "Europe/Berlin"),
-        "date_format": getattr(user, "date_format", "dd.MM.yyyy"),
+        "language": getattr(user, "language", "de") or "de",
+        "timezone": getattr(user, "timezone", "Europe/Berlin") or "Europe/Berlin",
+        "date_format": getattr(user, "date_format", "dd.MM.yyyy") or "dd.MM.yyyy",
     }
-    
-    # einfache Updates
-    if req.first_name is not None:
-        user.first_name = req.first_name.strip() or None
-    if req.last_name is not None:
-        user.last_name = req.last_name.strip() or None
-    if req.language is not None:
-        user.language = req.language.strip() or "de"
-    if req.timezone is not None:
-        user.timezone = req.timezone.strip() or "Europe/Berlin"
-    if req.date_format is not None:
-        user.date_format = req.date_format.strip() or "dd.MM.yyyy"
 
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    club_name = Column(String, nullable=False)
-
-    # NEU:
-    first_name = Column(String(100), nullable=True)
-    last_name = Column(String(100), nullable=True)
-    language = Column(String(10), nullable=True, default="de")
-    timezone = Column(String(50), nullable=True, default="Europe/Berlin")
-    date_format = Column(String(20), nullable=True, default="dd.MM.yyyy")
-
-    
-    # Passwort ändern (optional)
-    if req.password:
-        pw = req.password.strip()
-        if len(pw) < 6:
-            raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
-        if len(pw.encode("utf-8")) > 72:
-            raise HTTPException(status_code=400, detail="Passwort zu lang (max. 72 Zeichen)")
-        user.password_hash = hash_password(pw)
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return {"ok": True}
 
 class UpdateMeRequest(BaseModel):
+    club_name: str | None = None
     first_name: str | None = None
     last_name: str | None = None
     language: str | None = None
@@ -197,25 +143,31 @@ class UpdateMeRequest(BaseModel):
     date_format: str | None = None
     password: str | None = None
 
+
 @app.put("/me")
 def update_me(
     req: UpdateMeRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # einfache Updates
+    if req.club_name is not None:
+        user.club_name = req.club_name.strip() or user.club_name
+
     if req.first_name is not None:
         user.first_name = req.first_name.strip() or None
+
     if req.last_name is not None:
         user.last_name = req.last_name.strip() or None
+
     if req.language is not None:
         user.language = req.language.strip() or "de"
+
     if req.timezone is not None:
         user.timezone = req.timezone.strip() or "Europe/Berlin"
+
     if req.date_format is not None:
         user.date_format = req.date_format.strip() or "dd.MM.yyyy"
 
-    # Passwort ändern (optional)
     if req.password:
         pw = req.password.strip()
         if len(pw) < 6:
@@ -231,14 +183,17 @@ def update_me(
     return {"ok": True}
 
 
-
+# ---------- Health ----------
 @app.get("/health")
 def health():
     return {"ok": True}
 
-from fastapi import HTTPException
-import traceback
 
+# ---------- Coach ----------
+class CoachRequest(BaseModel):
+    message: str
+    team: Optional[str] = None
+    age_group: Optional[str] = None
 
 
 @app.post("/api/coach")
@@ -255,7 +210,6 @@ def coach(req: CoachRequest):
             "Gib konkrete Trainingsvorschläge (Dauer, Inhalte, Spielformen)."
         )
 
-        # WICHTIG: nimm erstmal ein sehr gängiges Modell
         resp = client.responses.create(
             model="gpt-4o-mini",
             input=f"{system}\nTrainer-Frage: {req.message}",
@@ -264,19 +218,20 @@ def coach(req: CoachRequest):
         return {"reply": resp.output_text}
 
     except Exception as e:
-        # Gibt dir die echte Fehlermeldung zurück (nur lokal! später wieder entfernen)
         details = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=details)
 
+
+# ---------- Calendar AI ----------
 class CalendarAIRequest(BaseModel):
     message: str
 
 class RecurrenceRule(BaseModel):
     title: str = "Training"
-    start_date: str           # "YYYY-MM-DD"
-    end_date: str             # "YYYY-MM-DD"
-    weekdays: List[str]       # ["MO","TU","WE","TH","FR","SA","SU"]
-    time: str                 # "19:00"
+    start_date: str          # "YYYY-MM-DD"
+    end_date: str            # "YYYY-MM-DD"
+    weekdays: List[str]      # ["MO","TU","WE","TH","FR","SA","SU"]
+    time: str                # "19:00"
     duration_minutes: int = 90
     type: str | None = "training"
     notes: str | None = None
@@ -285,16 +240,15 @@ class RecurrenceRule(BaseModel):
 class RecurrenceResponse(BaseModel):
     events: List[RecurrenceRule]
 
-WEEKDAY_MAP = {
-    "MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6
-}
 
-def expand_recurrence(rule: RecurrenceRule) -> List[tuple[datetime, datetime, str, str | None, str | None]]:
-    # returns list of (start_dt, end_dt, title, type, notes)
+WEEKDAY_MAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+def expand_recurrence(rule: RecurrenceRule):
     start_d = date.fromisoformat(rule.start_date)
     end_d = date.fromisoformat(rule.end_date)
     hh, mm = rule.time.split(":")
-    hour = int(hh); minute = int(mm)
+    hour = int(hh)
+    minute = int(mm)
 
     wanted = set(WEEKDAY_MAP[d] for d in rule.weekdays if d in WEEKDAY_MAP)
     if not wanted:
@@ -307,8 +261,9 @@ def expand_recurrence(rule: RecurrenceRule) -> List[tuple[datetime, datetime, st
             start_dt = datetime(cur.year, cur.month, cur.day, hour, minute)
             end_dt = start_dt + timedelta(minutes=rule.duration_minutes)
             out.append((start_dt, end_dt, rule.title, rule.type, rule.notes))
-        cur = cur + timedelta(days=1)
+        cur += timedelta(days=1)
     return out
+
 
 @app.post("/api/calendar/ai-plan")
 def calendar_ai_plan(req: CalendarAIRequest, user: User = Depends(get_current_user)):
@@ -338,31 +293,35 @@ def calendar_ai_plan(req: CalendarAIRequest, user: User = Depends(get_current_us
         "Wenn Wochentage fehlen, nimm MO und DO.\n"
     )
 
-    # responses API -> wir erwarten JSON im output_text
     resp = client.responses.create(
         model="gpt-4o-mini",
         input=f"{system}\nTEXT:\n{req.message}"
     )
 
-    raw = resp.output_text.strip()
+    raw = (resp.output_text or "").strip()
 
     try:
-        data = __import__("json").loads(raw)
+        data = json.loads(raw)
         parsed = RecurrenceResponse(**data)
         return parsed.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI JSON parse failed: {e}; raw={raw[:500]}")
 
 
-
 class SaveRecurrenceRequest(BaseModel):
     rule: RecurrenceRule
 
+
 @app.post("/api/calendar/save")
-def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def calendar_save(
+    req: SaveRecurrenceRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     items = expand_recurrence(req.rule)
     if not items:
         raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
+
     created = 0
     for start_dt, end_dt, title, typ, notes in items:
         ev = Event(
@@ -379,10 +338,8 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     db.commit()
     return {"ok": True, "created": created}
 
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
-from datetime import datetime
 
+# ---------- Calendar Events (GET) ----------
 class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -409,10 +366,3 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
-
-
-
-
-
-
-
