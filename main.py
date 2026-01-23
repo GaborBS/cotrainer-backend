@@ -134,6 +134,75 @@ def update_me(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+
+    def me(user: User = Depends(get_current_user)):
+    return {
+        "email": user.email,
+        "club_name": user.club_name,
+        "first_name": getattr(user, "first_name", None),
+        "last_name": getattr(user, "last_name", None),
+        "language": getattr(user, "language", "de"),
+        "timezone": getattr(user, "timezone", "Europe/Berlin"),
+        "date_format": getattr(user, "date_format", "dd.MM.yyyy"),
+    }
+    
+    # einfache Updates
+    if req.first_name is not None:
+        user.first_name = req.first_name.strip() or None
+    if req.last_name is not None:
+        user.last_name = req.last_name.strip() or None
+    if req.language is not None:
+        user.language = req.language.strip() or "de"
+    if req.timezone is not None:
+        user.timezone = req.timezone.strip() or "Europe/Berlin"
+    if req.date_format is not None:
+        user.date_format = req.date_format.strip() or "dd.MM.yyyy"
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    club_name = Column(String, nullable=False)
+
+    # NEU:
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    language = Column(String(10), nullable=True, default="de")
+    timezone = Column(String(50), nullable=True, default="Europe/Berlin")
+    date_format = Column(String(20), nullable=True, default="dd.MM.yyyy")
+
+    
+    # Passwort ändern (optional)
+    if req.password:
+        pw = req.password.strip()
+        if len(pw) < 6:
+            raise HTTPException(status_code=400, detail="Passwort zu kurz (min. 6)")
+        if len(pw.encode("utf-8")) > 72:
+            raise HTTPException(status_code=400, detail="Passwort zu lang (max. 72 Zeichen)")
+        user.password_hash = hash_password(pw)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {"ok": True}
+
+class UpdateMeRequest(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    language: str | None = None
+    timezone: str | None = None
+    date_format: str | None = None
+    password: str | None = None
+
+@app.put("/me")
+def update_me(
+    req: UpdateMeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     # einfache Updates
     if req.first_name is not None:
         user.first_name = req.first_name.strip() or None
@@ -160,6 +229,7 @@ def update_me(
     db.refresh(user)
 
     return {"ok": True}
+
 
 
 @app.get("/health")
@@ -339,6 +409,7 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
 
 
 
