@@ -387,5 +387,32 @@ def calendar_events(
 
     return q.order_by(Event.start_at.asc()).all()
 
+@app.post("/api/calendar/deduplicate")
+def calendar_deduplicate(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # alle Events dieses Users nach Zeit sortiert
+    events = (
+        db.query(Event)
+        .filter(Event.user_id == user.id)
+        .order_by(Event.start_at.asc(), Event.end_at.asc(), Event.id.asc())
+        .all()
+    )
+
+    seen = set()
+    removed = 0
+
+    for ev in events:
+        key = (ev.start_at, ev.end_at)  # Duplikat-Kriterium
+        if key in seen:
+            db.delete(ev)
+            removed += 1
+        else:
+            seen.add(key)
+
+    db.commit()
+    return {"ok": True, "removed_duplicates": removed}
+
 
 
