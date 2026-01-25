@@ -23,10 +23,10 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://app.negynegyketto.eu",
-        "http://app.negynegyketto.eu",
-        "https://negynegyketto.eu",
-        "http://negynegyketto.eu",
+        "https://app.aicotrainer.eu",
+        "http://app.aicotrainer.eu",
+        "https://aicotrainer.eu",
+        "http://aicotrainer.eu",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -366,3 +366,4 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
