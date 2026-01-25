@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
 from openai import OpenAI
+from sqlalchemy import and_
+
 
 from datetime import datetime, timedelta, date, time
 
@@ -62,6 +64,7 @@ class LoginRequest(BaseModel):
 
 
 # ---------- Token Helper ----------
+
 def get_current_user(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
@@ -313,17 +316,32 @@ class SaveRecurrenceRequest(BaseModel):
 
 
 @app.post("/api/calendar/save")
-def calendar_save(
-    req: SaveRecurrenceRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
+def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     items = expand_recurrence(req.rule)
     if not items:
         raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
 
     created = 0
+    skipped = 0
+
     for start_dt, end_dt, title, typ, notes in items:
+        # ✅ Duplikat-Check: gleicher User + gleiche Zeiten + gleicher Titel + gleicher Typ
+        exists = (
+            db.query(Event)
+            .filter(
+                Event.user_id == user.id,
+                Event.start_at == start_dt,
+                Event.end_at == end_dt,
+                Event.title == title,
+                Event.type == typ,
+            )
+            .first()
+        )
+
+        if exists:
+            skipped += 1
+            continue
+
         ev = Event(
             user_id=user.id,
             title=title,
@@ -336,7 +354,7 @@ def calendar_save(
         created += 1
 
     db.commit()
-    return {"ok": True, "created": created}
+    return {"ok": True, "created": created, "skipped_duplicates": skipped}
 
 
 # ---------- Calendar Events (GET) ----------
@@ -366,4 +384,5 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
 
