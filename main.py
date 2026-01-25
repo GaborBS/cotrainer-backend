@@ -315,8 +315,14 @@ class SaveRecurrenceRequest(BaseModel):
     rule: RecurrenceRule
 
 
+from sqlalchemy.exc import IntegrityError
+
 @app.post("/api/calendar/save")
-def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def calendar_save(
+    req: SaveRecurrenceRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     items = expand_recurrence(req.rule)
     if not items:
         raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
@@ -325,19 +331,16 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
     skipped = 0
 
     for start_dt, end_dt, title, typ, notes in items:
-        # ✅ Duplikat-Check: gleicher User + gleiche Zeiten + gleicher Titel + gleicher Typ
+        # Duplikat-Check: NUR nach Zeit (robust)
         exists = (
             db.query(Event)
             .filter(
                 Event.user_id == user.id,
                 Event.start_at == start_dt,
                 Event.end_at == end_dt,
-                Event.title == title,
-                Event.type == typ,
             )
             .first()
         )
-
         if exists:
             skipped += 1
             continue
@@ -348,14 +351,13 @@ def calendar_save(req: SaveRecurrenceRequest, db: Session = Depends(get_db), use
             start_at=start_dt,
             end_at=end_dt,
             type=typ,
-            notes=notes
+            notes=notes,
         )
         db.add(ev)
         created += 1
 
     db.commit()
     return {"ok": True, "created": created, "skipped_duplicates": skipped}
-
 
 # ---------- Calendar Events (GET) ----------
 class EventOut(BaseModel):
@@ -384,5 +386,6 @@ def calendar_events(
         q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
 
     return q.order_by(Event.start_at.asc()).all()
+
 
 
