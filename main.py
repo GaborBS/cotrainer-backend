@@ -30,7 +30,7 @@ app.add_middleware(
         "https://aicotrainer.eu",
         "http://aicotrainer.eu",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -416,6 +416,7 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
 
 
