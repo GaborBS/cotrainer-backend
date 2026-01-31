@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
-from sqlalchemy.orm import relationship
 from db import Base
 from openai import OpenAI
 from sqlalchemy import and_
@@ -419,6 +418,7 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
 
 
