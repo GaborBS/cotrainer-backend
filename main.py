@@ -7,6 +7,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from openai import OpenAI
 
 from datetime import datetime, timedelta, date, time
@@ -34,16 +35,42 @@ app.add_middleware(
     allow_headers=["*"],  # erlaubt auch Authorization
 )
 
+#------db migartion -------
+
+def run_db_migrations(engine):
+    with engine.connect() as conn:
+        conn.execute(text("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
+        """))
+        conn.execute(text("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
+        """))
+        conn.execute(text("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'de';
+        """))
+        conn.execute(text("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Berlin';
+        """))
+        conn.execute(text("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format TEXT DEFAULT 'dd.MM.yyyy';
+        """))
+        conn.commit()
+
+
 # ---------- Startup ----------
 @app.on_event("startup")
 def on_startup():
     try:
+        # 1) Tabellen erstellen (falls noch nicht existieren)
         Base.metadata.create_all(bind=engine)
-        print("DB ready")
+
+        # 2) Migration ausführen (Spalten ergänzen)
+        run_db_migrations()
+
+        print("DB ready + migrations applied")
         print("AUTH_SCHEME:", pwd_context.schemes())
     except Exception as e:
         print("DB init failed:", repr(e))
-
 
 @app.get("/debug/auth")
 def debug_auth():
@@ -496,4 +523,5 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
