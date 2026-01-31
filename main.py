@@ -418,6 +418,92 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+from datetime import datetime, date, time
+
+@app.post("/api/calendar/sync")
+def calendar_sync(
+    req: SaveRecurrenceRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 1) alles vor heute löschen (ab 00:00 heute bleibt)
+    today_start = datetime.combine(date.today(), time.min)
+
+    # WICHTIG: Wenn du nur Trainingsplan löschen willst, nimm zusätzlich Event.type == "training"
+    deleted = (
+        db.query(Event)
+        .filter(
+            Event.user_id == user.id,
+            Event.start_at < today_start,
+            # Optional, empfohlen:
+            # Event.type == "training"
+        )
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    # 2) neue Termine erzeugen und speichern (deine bestehende Logik)
+    items = expand_recurrence(req.rule)
+    if not items:
+        raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
+
+    created = 0
+    skipped = 0
+
+    for start_dt, end_dt, title, typ, notes in items:
+        exists = (
+            db.query(Event)
+            .filter(
+                Event.user_id == user.id,
+                Event.start_at == start_dt,
+                Event.end_at == end_dt,
+            )
+            .first()
+        )
+        if exists:
+            skipped += 1
+            continue
+
+        db.add(Event(
+            user_id=user.id,
+            title=title,
+            start_at=start_dt,
+            end_at=end_dt,
+            type=typ,
+            notes=notes,
+        ))
+        created += 1
+
+    db.commit()
+
+    # 3) deduplicate (wie in /api/calendar/deduplicate)
+    events = (
+        db.query(Event)
+        .filter(Event.user_id == user.id)
+        .order_by(Event.start_at.asc(), Event.end_at.asc(), Event.id.asc())
+        .all()
+    )
+
+    seen = set()
+    removed = 0
+    for ev in events:
+        key = (ev.start_at, ev.end_at)
+        if key in seen:
+            db.delete(ev)
+            removed += 1
+        else:
+            seen.add(key)
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "deleted_past": deleted,
+        "created": created,
+        "skipped_duplicates": skipped,
+        "removed_duplicates": removed,
+    }
+
 
 
 
