@@ -37,44 +37,34 @@ app.add_middleware(
 
 #------db migartion -------
 
+from sqlalchemy import text
+
 def run_db_migrations(engine):
-    with engine.connect() as conn:
-        conn.execute(text("""
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
-        """))
-        conn.execute(text("""
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
-        """))
-        conn.execute(text("""
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'de';
-        """))
-        conn.execute(text("""
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Berlin';
-        """))
-        conn.execute(text("""
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format TEXT DEFAULT 'dd.MM.yyyy';
-        """))
-        conn.commit()
+    # engine.begin() ist der sichere Weg: commit wird automatisch gemacht
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'de';"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Berlin';"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format TEXT DEFAULT 'dd.MM.yyyy';"))
+
 
 
 # ---------- Startup ----------
 @app.on_event("startup")
 def on_startup():
     try:
-        # 1) Tabellen erstellen (falls noch nicht existieren)
+        print("Startup: create_all...")
         Base.metadata.create_all(bind=engine)
 
-        # 2) Migration ausführen (Spalten ergänzen)
-        run_db_migrations()
+        print("Startup: running migrations...")
+        run_db_migrations(engine)
+        print("Startup: migrations done ✅")
 
-        print("DB ready + migrations applied")
+        print("DB ready")
         print("AUTH_SCHEME:", pwd_context.schemes())
     except Exception as e:
         print("DB init failed:", repr(e))
-
-@app.get("/debug/auth")
-def debug_auth():
-    return {"schemes": list(pwd_context.schemes())}
 
 
 # ---------- Auth Models ----------
@@ -523,5 +513,6 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
 
