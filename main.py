@@ -7,15 +7,13 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
-from db import Base
 from openai import OpenAI
 from sqlalchemy import and_
 
 
 from datetime import datetime, timedelta, date, time
 
-from db import Base, engine, get_db
+from db import engine, get_db
 from models import User, Event
 from auth import hash_password, verify_password, create_token, decode_token
 from auth import pwd_context
@@ -418,6 +416,7 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
 
 
