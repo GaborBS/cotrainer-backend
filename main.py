@@ -24,15 +24,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://app.aicotrainer.eu",
-        "http://app.aicotrainer.eu",
         "https://aicotrainer.eu",
-        "http://aicotrainer.eu",
+        "https://www.aicotrainer.eu",
+        "http://localhost:5173",
+        "http://localhost:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"],  # erlaubt auch Authorization
 )
-
 
 # ---------- Startup ----------
 @app.on_event("startup")
@@ -496,3 +496,4 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
