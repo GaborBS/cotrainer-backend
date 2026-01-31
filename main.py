@@ -8,12 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
 from openai import OpenAI
-from sqlalchemy import and_
-
 
 from datetime import datetime, timedelta, date, time
 
-from db import engine, get_db
+from db import engine, get_db, Base
 from models import User, Event
 from auth import hash_password, verify_password, create_token, decode_token
 from auth import pwd_context
@@ -29,10 +27,8 @@ app.add_middleware(
         "http://app.aicotrainer.eu",
         "https://aicotrainer.eu",
         "http://aicotrainer.eu",
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -60,13 +56,13 @@ class RegisterRequest(BaseModel):
     password: str
     club_name: str
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
 
 # ---------- Token Helper ----------
-
 def get_current_user(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
@@ -102,7 +98,6 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         email=req.email.lower().strip(),
         password_hash=hash_password(pw),
         club_name=req.club_name.strip(),
-        # optional fields (wenn in models.py vorhanden)
         first_name=None,
         last_name=None,
         language="de",
@@ -147,9 +142,6 @@ class UpdateMeRequest(BaseModel):
     timezone: str | None = None
     date_format: str | None = None
     password: str | None = None
-
-
-
 
 
 @app.put("/me")
@@ -234,6 +226,7 @@ def coach(req: CoachRequest):
 class CalendarAIRequest(BaseModel):
     message: str
 
+
 class RecurrenceRule(BaseModel):
     title: str = "Training"
     start_date: str          # "YYYY-MM-DD"
@@ -245,11 +238,13 @@ class RecurrenceRule(BaseModel):
     notes: str | None = None
     timezone: str | None = "Europe/Berlin"
 
+
 class RecurrenceResponse(BaseModel):
     events: List[RecurrenceRule]
 
 
 WEEKDAY_MAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
 
 def expand_recurrence(rule: RecurrenceRule):
     start_d = date.fromisoformat(rule.start_date)
@@ -320,8 +315,6 @@ class SaveRecurrenceRequest(BaseModel):
     rule: RecurrenceRule
 
 
-from sqlalchemy.exc import IntegrityError
-
 @app.post("/api/calendar/save")
 def calendar_save(
     req: SaveRecurrenceRequest,
@@ -336,7 +329,6 @@ def calendar_save(
     skipped = 0
 
     for start_dt, end_dt, title, typ, notes in items:
-        # Duplikat-Check: NUR nach Zeit (robust)
         exists = (
             db.query(Event)
             .filter(
@@ -364,85 +356,29 @@ def calendar_save(
     db.commit()
     return {"ok": True, "created": created, "skipped_duplicates": skipped}
 
-# ---------- Calendar Events (GET) ----------
-class EventOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    title: str
-    start_at: datetime
-    end_at: datetime
-    type: Optional[str] = None
-    notes: Optional[str] = None
-
-
-@app.get("/api/calendar/events", response_model=list[EventOut])
-def calendar_events(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-    from_date: date | None = Query(default=None),
-    to_date: date | None = Query(default=None),
-):
-    q = db.query(Event).filter(Event.user_id == user.id)
-
-    if from_date:
-        q = q.filter(Event.start_at >= datetime.combine(from_date, time.min))
-    if to_date:
-        q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
-
-    return q.order_by(Event.start_at.asc()).all()
-
-@app.post("/api/calendar/deduplicate")
-def calendar_deduplicate(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    # alle Events dieses Users nach Zeit sortiert
-    events = (
-        db.query(Event)
-        .filter(Event.user_id == user.id)
-        .order_by(Event.start_at.asc(), Event.end_at.asc(), Event.id.asc())
-        .all()
-    )
-
-    seen = set()
-    removed = 0
-
-    for ev in events:
-        key = (ev.start_at, ev.end_at)  # Duplikat-Kriterium
-        if key in seen:
-            db.delete(ev)
-            removed += 1
-        else:
-            seen.add(key)
-
-    db.commit()
-    return {"ok": True, "removed_duplicates": removed}
-from datetime import datetime, date, time
-
+# ---------- NEW: Calendar SYNC (dein Workflow) ----------
 @app.post("/api/calendar/sync")
 def calendar_sync(
     req: SaveRecurrenceRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # 1) alles vor heute löschen (ab 00:00 heute bleibt)
+    # 1) Alles vor heute (00:00) löschen — aber nur Trainings-Events
     today_start = datetime.combine(date.today(), time.min)
 
-    # WICHTIG: Wenn du nur Trainingsplan löschen willst, nimm zusätzlich Event.type == "training"
-    deleted = (
+    deleted_past = (
         db.query(Event)
         .filter(
             Event.user_id == user.id,
             Event.start_at < today_start,
-            # Optional, empfohlen:
-            # Event.type == "training"
+            Event.type == "training",
         )
         .delete(synchronize_session=False)
     )
     db.commit()
 
-    # 2) neue Termine erzeugen und speichern (deine bestehende Logik)
+    # 2) Neue Termine speichern (ohne Duplikate)
     items = expand_recurrence(req.rule)
     if not items:
         raise HTTPException(status_code=400, detail="Keine Termine aus Regel erzeugt")
@@ -476,7 +412,7 @@ def calendar_sync(
 
     db.commit()
 
-    # 3) deduplicate (wie in /api/calendar/deduplicate)
+    # 3) Duplikate entfernen (Kriterium: start_at + end_at)
     events = (
         db.query(Event)
         .filter(Event.user_id == user.id)
@@ -486,6 +422,7 @@ def calendar_sync(
 
     seen = set()
     removed = 0
+
     for ev in events:
         key = (ev.start_at, ev.end_at)
         if key in seen:
@@ -498,18 +435,64 @@ def calendar_sync(
 
     return {
         "ok": True,
-        "deleted_past": deleted,
+        "deleted_past": deleted_past,
         "created": created,
         "skipped_duplicates": skipped,
         "removed_duplicates": removed,
     }
 
 
+# ---------- Calendar Events (GET) ----------
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    start_at: datetime
+    end_at: datetime
+    type: Optional[str] = None
+    notes: Optional[str] = None
 
 
+@app.get("/api/calendar/events", response_model=list[EventOut])
+def calendar_events(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+):
+    q = db.query(Event).filter(Event.user_id == user.id)
+
+    if from_date:
+        q = q.filter(Event.start_at >= datetime.combine(from_date, time.min))
+    if to_date:
+        q = q.filter(Event.start_at <= datetime.combine(to_date, time.max))
+
+    return q.order_by(Event.start_at.asc()).all()
 
 
+@app.post("/api/calendar/deduplicate")
+def calendar_deduplicate(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    events = (
+        db.query(Event)
+        .filter(Event.user_id == user.id)
+        .order_by(Event.start_at.asc(), Event.end_at.asc(), Event.id.asc())
+        .all()
+    )
 
+    seen = set()
+    removed = 0
 
+    for ev in events:
+        key = (ev.start_at, ev.end_at)
+        if key in seen:
+            db.delete(ev)
+            removed += 1
+        else:
+            seen.add(key)
 
-
+    db.commit()
+    return {"ok": True, "removed_duplicates": removed}
