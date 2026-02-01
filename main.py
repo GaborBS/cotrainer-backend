@@ -29,6 +29,8 @@ app.add_middleware(
         "https://www.aicotrainer.eu",
         "http://localhost:5173",
         "http://localhost:3000",
+        "https://api.aicotrainer.eu",
+
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -513,6 +515,7 @@ def calendar_deduplicate(
 
     db.commit()
     return {"ok": True, "removed_duplicates": removed}
+
 
 
 
